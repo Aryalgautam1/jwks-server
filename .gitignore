@@ -1,26 +1,44 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
 
-# Virtual envs
+# Virtual Environment
 .venv/
-env/
 venv/
+ENV/
+env/
 
-# Test/coverage caches
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
+*.cover
+.tox/
 
-# OS/editor junk
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
 
-# VS Code
-.vscode/
+# Logs
+*.log
+server.log
 
-# Build artifacts
-dist/
-build/
+# Gradebot
+gradebot.exe
+
+# Duplicate/temp folders
+JWKS-Server---Project-2/
+project2/

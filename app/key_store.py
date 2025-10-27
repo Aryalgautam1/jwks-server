@@ -1,68 +1,76 @@
 import time
-import uuid
-from dataclasses import dataclass
-from typing import Dict, Tuple, List, Optional
+from typing import Tuple, List, Optional
 
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
+from app.database import get_db_connection
 
 
-@dataclass
-class KeyEntry:
-    kid: str
-    private_pem: bytes
-    public_pem: bytes
-    expiry: int  # unix timestamp (seconds)
-
-
-class KeyStore:
+def save_key(pem_bytes: bytes, exp_ts: int) -> int:
     """
-    Very simple in-memory keystore.
-    - Generates one active key (future expiry) and one expired key (past expiry) at startup.
-    - Provides helpers to fetch active/expired keys and payload expiries.
+    Save a private key PEM to the database with expiry timestamp.
+    Uses parameterized query for SQL injection safety.
+    Returns the DB row kid (auto-generated).
     """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO keys (key, exp) VALUES (?, ?)",
+        (pem_bytes, exp_ts)
+    )
+    kid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return kid
 
-    def __init__(self, active_lifetime_s: int = 600, expired_age_s: int = 3600) -> None:
-        self._keys: Dict[str, KeyEntry] = {}
-        now = int(time.time())
 
-        # Generate active key (valid for active_lifetime_s from now)
-        self.active_kid = self._generate_key(expiry=now + active_lifetime_s)
-
-        # Generate expired key (expired expired_age_s seconds ago)
-        self.expired_kid = self._generate_key(expiry=now - expired_age_s)
-
-    def _generate_rsa_keypair(self) -> Tuple[bytes, bytes]:
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        private_pem = key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
+def get_key(expired: bool) -> Optional[Tuple[int, bytes, int]]:
+    """
+    Get one key from the database.
+    - If expired=True: choose one key with exp <= now
+    - If expired=False: choose one key with exp > now
+    
+    Returns (kid:int, pem_bytes:bytes, exp_ts:int) or None if no matching key.
+    Uses parameterized query for SQL injection safety.
+    """
+    now = int(time.time())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if expired:
+        # Get an expired key (exp <= now)
+        cursor.execute(
+            "SELECT kid, key, exp FROM keys WHERE exp <= ? ORDER BY kid LIMIT 1",
+            (now,)
         )
-        public_pem = key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    else:
+        # Get a valid key (exp > now)
+        cursor.execute(
+            "SELECT kid, key, exp FROM keys WHERE exp > ? ORDER BY kid LIMIT 1",
+            (now,)
         )
-        return private_pem, public_pem
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row is None:
+        return None
+    
+    return (row["kid"], row["key"], row["exp"])
 
-    def _generate_key(self, expiry: int) -> str:
-        private_pem, public_pem = self._generate_rsa_keypair()
-        kid = str(uuid.uuid4())
-        self._keys[kid] = KeyEntry(
-            kid=kid, private_pem=private_pem, public_pem=public_pem, expiry=expiry
-        )
-        return kid
 
-    def get_key(self, kid: str) -> Optional[KeyEntry]:
-        return self._keys.get(kid)
-
-    def get_active_keys(self) -> List[KeyEntry]:
-        now = int(time.time())
-        return [k for k in self._keys.values() if k.expiry > now]
-
-    def get_active_key(self) -> KeyEntry:
-        # Return the known active key by id (created at init)
-        return self._keys[self.active_kid]
-
-    def get_expired_key(self) -> KeyEntry:
-        return self._keys[self.expired_kid]
+def get_valid_keys() -> List[Tuple[int, bytes, int]]:
+    """
+    Get all valid (non-expired) keys from the database.
+    Returns list of (kid:int, pem_bytes:bytes, exp_ts:int).
+    Uses parameterized query for SQL injection safety.
+    """
+    now = int(time.time())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT kid, key, exp FROM keys WHERE exp > ?",
+        (now,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [(row["kid"], row["key"], row["exp"]) for row in rows]

@@ -1,5 +1,6 @@
 import base64
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
 
 
 def _int_to_base64url(n: int) -> str:
@@ -25,3 +26,27 @@ def public_key_to_jwk(public_key, kid: str) -> dict:
         "n": _int_to_base64url(numbers.n),
         "e": _int_to_base64url(numbers.e),
     }
+
+
+def serialize_private_key_to_pem(private_key) -> bytes:
+    """
+    Serialize an RSA private key to PEM format (PKCS#1/TraditionalOpenSSL).
+    No password encryption (safe default for this use case).
+    Uses TraditionalOpenSSL format for gradebot compatibility.
+    """
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
+def load_private_key_from_pem(pem_bytes: bytes):
+    """
+    Load an RSA private key from PEM bytes.
+    Returns an RSA private key object.
+    """
+    return serialization.load_pem_private_key(
+        pem_bytes,
+        password=None,
+    )
